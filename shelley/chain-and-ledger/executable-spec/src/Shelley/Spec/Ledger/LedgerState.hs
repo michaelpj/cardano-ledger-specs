@@ -438,6 +438,10 @@ deriving stock instance
   ShelleyBased era =>
   Show (EpochState era)
 
+deriving stock instance
+  ShelleyBased era =>
+  Eq (EpochState era)
+
 instance NoThunks (EpochState era)
 
 instance (Era era) => NFData (EpochState era)
@@ -550,6 +554,10 @@ deriving stock instance
   ShelleyBased era =>
   Show (UTxOState era)
 
+deriving stock instance
+  ShelleyBased era =>
+  Eq (UTxOState era)
+
 instance NoThunks (UTxOState era)
 
 instance
@@ -591,6 +599,10 @@ data NewEpochState era = NewEpochState
 deriving stock instance
   ShelleyBased era =>
   Show (NewEpochState era)
+
+deriving stock instance
+  ShelleyBased era =>
+  Eq (NewEpochState era)
 
 instance (Era era) => NFData (NewEpochState era)
 
@@ -637,6 +649,10 @@ data LedgerState era = LedgerState
 deriving stock instance
   ShelleyBased era =>
   Show (LedgerState era)
+
+deriving stock instance
+  ShelleyBased era =>
+  Eq (LedgerState era)
 
 instance NoThunks (LedgerState era)
 
