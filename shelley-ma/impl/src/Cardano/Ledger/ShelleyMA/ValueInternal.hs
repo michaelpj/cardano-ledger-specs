@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Cardano.Ledger.ShelleyMA.ValueInternal
   ( PolicyID (..),
@@ -25,6 +26,7 @@ import Cardano.Binary
     fromCBOR,
     toCBOR,
   )
+import qualified Cardano.Ledger.Core as Core
 import Cardano.Ledger.Era
 import Cardano.Ledger.Val (Val (..), scale)
 import qualified Cardano.Ledger.Val as Val
@@ -89,6 +91,13 @@ instance Group (Value era) where
   invert (Value c m) = Value (- c) (cannonicalMap (cannonicalMap ((-1 :: Integer) *)) m)
 
 instance Abelian (Value era)
+
+instance Core.Compactible (Value era) where
+  -- TODO a proper compact form
+  newtype CompactForm (Value era) = CompactValue {getCompactValue :: Value era}
+    deriving (ToCBOR, FromCBOR)
+  toCompact = CompactValue
+  fromCompact = getCompactValue
 
 -- ===================================================
 -- Make the Val instance of Value
