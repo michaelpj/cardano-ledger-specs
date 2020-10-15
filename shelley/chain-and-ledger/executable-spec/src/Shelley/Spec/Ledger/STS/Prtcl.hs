@@ -23,6 +23,8 @@ module Shelley.Spec.Ledger.STS.Prtcl
   )
 where
 
+import qualified Data.ByteString.Base16 as Base16
+import Cardano.Crypto.Hash.Class (hashToBytes)
 import Cardano.Binary
   ( FromCBOR (fromCBOR),
     ToCBOR (toCBOR),
@@ -32,17 +34,12 @@ import qualified Cardano.Crypto.VRF as VRF
 import Cardano.Ledger.Crypto (VRF)
 import Cardano.Ledger.Era (Crypto, Era)
 import Cardano.Prelude (MonadError (..), NoUnexpectedThunks (..), unless)
-import Cardano.Slotting.Slot (WithOrigin (..))
+import Cardano.Slotting.Slot
 import Control.State.Transition
 import Data.Map.Strict (Map)
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 import Shelley.Spec.Ledger.BaseTypes
-  ( Nonce,
-    Seed,
-    ShelleyBase,
-    UnitInterval,
-  )
 import Shelley.Spec.Ledger.BlockChain
   ( BHBody (..),
     BHeader (..),
@@ -65,7 +62,8 @@ import Shelley.Spec.Ledger.OCert (OCertSignable)
 import Shelley.Spec.Ledger.STS.Overlay (OVERLAY, OverlayEnv (..))
 import Shelley.Spec.Ledger.STS.Updn (UPDN, UpdnEnv (..), UpdnState (..))
 import Shelley.Spec.Ledger.Serialization (decodeRecordNamed)
-import Shelley.Spec.Ledger.Slot (BlockNo, SlotNo)
+import Shelley.Spec.Ledger.Slot
+import Control.Monad.Trans.Reader (asks)
 
 data PRTCL era
 
@@ -124,6 +122,10 @@ deriving instance
   (VRF.VRFAlgorithm (VRF (Crypto era))) =>
   Eq (PrtclPredicateFailure era)
 
+dispNonce :: Nonce -> String
+dispNonce (Nonce h) = show $ Base16.encode . hashToBytes $ h
+dispNonce NeutralNonce = ""
+
 instance
   ( Era era,
     DSignable era (OCertSignable era),
@@ -181,11 +183,25 @@ prtclTransition = do
     trans @(OVERLAY era) $
       TRC (OverlayEnv dval pd dms eta0, cs, bh)
 
+  ei <- liftSTS $ asks epochInfo
+  sp <- liftSTS $ asks stabilityWindow
+  EpochNo e <- liftSTS $ epochInfoEpoch ei slot
+  firstSlotNextEpoch <- liftSTS $ epochInfoFirst ei (EpochNo (e + 1))
+
+  let foo = if True
+              then error ( "THE CANDIDATE NONCE IS: " <> dispNonce etaC' <> "\n" <>
+                           "THE EVOLVING NONCE IS: "   <> dispNonce etaV' <> "\n"  <>
+                           "THE SLOT IS: "   <> show slot <> "\n"  <>
+                           "THE CURRENT EPOCH IS: "   <> show e <> "\n"  <>
+                           "THE FIRST SLOT NEXT EPOCH: "   <> show firstSlotNextEpoch <> "\n"  <>
+                           "STILL EVOLVING: "   <> show (slot +* Duration sp < firstSlotNextEpoch) <> "\n"
+                         )
+              else etaC'
   pure $
     PrtclState
       cs'
       etaV'
-      etaC'
+      foo
 
 instance (Era era) => NoUnexpectedThunks (PrtclPredicateFailure era)
 
