@@ -86,7 +86,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Sequence.Strict (StrictSeq)
 import Data.Sequence (Seq)
-import Data.Set (Set,isSubsetOf,insert,member)
+import Data.Set (Set,insert,member)
 import Data.Text (Text,pack)
 import Data.Foldable (foldl')
 import Data.Typeable
@@ -422,9 +422,6 @@ unTagSeries :: t -> (Word -> Box t) -> Set Word -> Int -> Decoder s (t,Set Word)
 unTagSeries t _ seen n | n <= 0 = pure (t, seen)
 unTagSeries t pick seen n = do (transform,seen2) <- untag pick seen; unTagSeries (transform t) pick seen2 (n-1)
 
-addtags :: (v -> t -> t) -> Word -> v -> (t,Set Word) -> (t,Set Word)
-addtags update tag v (t,tags) = (update v t,insert tag tags)
-
 -- ===========================================================================================
 -- These functions are the dual analogs to
 -- Shelley.Spec.Ledger.Serialization(decodeList, decodeSeq, decodeStrictSeq, decodeSet)
@@ -686,15 +683,3 @@ instance Show t => Show (Decode w t) where
   show (Map _f _x) = "Map"
   show (OmitD x) = "OmitD "++show x
   show (UnTag ini _ required) = "(UnTag "++show ini++" "++show required++")"
-
-
-{- I wonder can you write this function?
-import Codec.CBOR.Decoding (Decoder,getDecodeAction,liftST,DecodeAction(Fail))
-
-tryDecoder :: (forall st . Decoder st a)  ->  Decoder s (Maybe a)
-tryDecoder d =
-   do action <- liftST(getDecodeAction d)
-      case action of
-          Fail _ -> return Nothing
-          _ -> Just <$> d
--}
