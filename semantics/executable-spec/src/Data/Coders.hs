@@ -31,6 +31,7 @@ module Data.Coders
     Decode (..),
     (!>),
     (<!),
+    (<*!),
     Wrapped (..),
     encode,
     decode,
@@ -54,6 +55,13 @@ module Data.Coders
     encodeFoldableEncoder,
     roundTrip,
     roundTrip',
+    Dual(..),    -- Duals
+    listDual,
+    seqDual,
+    setDual,
+    maybeDual,
+    textDual,
+    strictSeqDual,
     foo,foo',defaultA,bar,bar', makeDecoder,baz,boxA,decodeA,
     ok,
   )
@@ -70,6 +78,7 @@ import qualified Data.ByteString.Lazy as Lazy
 import Cardano.Binary
   ( FromCBOR (fromCBOR),
     ToCBOR (toCBOR),
+    Annotator (..),
     encodeListLen,
     encodeWord,
     encodeBreak,
@@ -239,6 +248,10 @@ data Wrapped = Open | Closed
   deriving Typeable
 
 -- ===========================================================
+{-
+class Display t where
+  display :: t -> String
+-}
 
 data Encode (w :: Wrapped) t where
   Sum :: t -> Word -> Encode 'Open t
@@ -326,11 +339,17 @@ data Decode (w :: Wrapped) t where
   Map :: (a -> b) -> Decode w a -> Decode w b
   OmitD :: t -> Decode 'Closed t
   UnTag :: Typeable t => t -> (Word -> Box t) -> [Word] -> Decode 'Closed t
+  -- The next two could be generalized to any (Applicative f) rather than Annotator
+  Ann :: Show t => Decode w t -> Decode w (Annotator t)
+  ApplyAnn :: (Typeable a,Show a) => Decode w (Annotator(a -> t)) -> Decode 'Closed (Annotator a) -> Decode w (Annotator t)
 
 infixl 4 <!
 
 (<!) :: (Typeable a,Show a) => Decode w (a -> t) -> Decode 'Closed a -> Decode w t
 x <! y = ApplyD x y
+
+(<*!) :: (Typeable a,Show a) => Decode w (Annotator(a -> t)) -> Decode 'Closed (Annotator a) -> Decode w (Annotator t)
+x <*! y = ApplyAnn x y
 
 hsize :: Decode w t -> Int
 hsize (Summands _ _) = 1
@@ -343,6 +362,8 @@ hsize (Invalid _) = 0
 hsize (Map _ x) = hsize x
 hsize (OmitD _) = 0
 hsize (UnTag _ _ _) = 1
+hsize (Ann x) = hsize x
+hsize (ApplyAnn f x) = hsize f + hsize x
 
 decode :: Decode w t -> Decoder s t
 decode x = fmap snd (decodE x)
@@ -364,6 +385,11 @@ decodeCount (Invalid k) _ = invalidKey k
 decodeCount (Map f x) n = do (m, y) <- decodeCount x n; pure (m, f y)
 decodeCount (OmitD x) n = pure(n,x)
 decodeCount (u@(UnTag _ _ _)) n = (n+1,) <$> decodeClosed u
+decodeCount (Ann x) n = do (m,y) <- decodeCount x n; pure(m,pure y)
+decodeCount (ApplyAnn g x) n = do
+  (i,f) <- decodeCount g (n + hsize x)
+  y <- decodeClosed x
+  pure (i,f <*> y)
 
 decodeClosed :: Decode 'Closed t -> Decoder s t
 decodeClosed (Summands nm f) = decodeRecordSum nm (\x -> decodE (f x))
@@ -386,6 +412,11 @@ decodeClosed (UnTag initial pick required) = do
                     then pure v
                     else unusedKeys used required (show(typeOf initial))
     Nothing -> defaultError "UnTag NOT ListLen encoded"
+decodeClosed (Ann x) = fmap pure (decodeClosed x)
+decodeClosed (ApplyAnn g x) = do
+  f <- decodeClosed g
+  y <- decodeClosed x
+  pure (f <*> y)
 
 
 unusedKeys :: Set Word -> [Word] -> String -> Decoder s a
@@ -440,6 +471,32 @@ encodeSeq = encodeFoldable
 
 encodeSet :: ToCBOR a => Set a -> Encoding
 encodeSet = encodeFoldable
+
+-- ===========================================================================================
+-- A Dual pairs and Encoding and Decoder with a rountrip property.
+-- They are used with the (E and D) constructors of Encode and Decode
+-- If you are trying to code something not in the CBOR classes
+-- or you want something not traditional, make you own Dual and use E or D
+
+data Dual t = Dual (t -> Encoding) (forall s . Decoder s t)
+
+listDual :: (ToCBOR a, FromCBOR a) => Dual [a]
+listDual = Dual encodeFoldable (decodeList fromCBOR)
+
+seqDual :: (ToCBOR a, FromCBOR a) => Dual (Seq a)
+seqDual = Dual encodeFoldable (decodeSeq fromCBOR)
+
+setDual :: (Ord a,ToCBOR a, FromCBOR a) => Dual (Set a)
+setDual = Dual encodeFoldable (decodeSet fromCBOR)
+
+maybeDual :: (ToCBOR a, FromCBOR a) => Dual (Maybe a)
+maybeDual = Dual toCBOR fromCBOR
+
+strictSeqDual :: (ToCBOR a, FromCBOR a) => Dual (StrictSeq a)
+strictSeqDual = Dual encodeFoldable (decodeStrictSeq fromCBOR)
+
+textDual :: Dual Text
+textDual = Dual toCBOR fromCBOR
 
 -- ===========================================
 -- For more worked out EXAMPLES see the testfile:
@@ -660,7 +717,11 @@ ok = all isRight [ test0,  test1,  test2,  test3
 -- ===================================================================
 -- Show instances
 
+
 instance Show (a -> b) where show _ = "<fun>"
+
+instance Show (Annotator t) where
+  show (Annotator _f) = "Annotator"
 
 instance Show t => Show (Encode w t) where
   show (Sum _ n) = "Sum "++show n
@@ -683,3 +744,5 @@ instance Show t => Show (Decode w t) where
   show (Map _f _x) = "Map"
   show (OmitD x) = "OmitD "++show x
   show (UnTag ini _ required) = "(UnTag "++show ini++" "++show required++")"
+  show (Ann x) = "Ann ("++show x ++")"
+  show (ApplyAnn x y) = show x++" <*! "++show y
